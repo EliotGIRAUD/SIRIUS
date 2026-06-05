@@ -14,7 +14,7 @@ const simulationSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     dogId: { type: mongoose.Schema.Types.ObjectId, ref: 'Dog', default: null },
-    status: { type: String, enum: ['in_progress', 'completed'], default: 'in_progress' },
+    status: { type: String, enum: ['in_progress', 'completed', 'abandoned'], default: 'in_progress' },
     currentDay: { type: Number, default: 1, min: 1, max: 30 },
     budgetRemaining: { type: Number, required: true },
     initialBudget: { type: Number, required: true },

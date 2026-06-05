@@ -1,4 +1,12 @@
+import type { AuthUser, BreederInfo, ShelterInfo } from './types';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler;
+}
 
 function getToken() {
   return localStorage.getItem('sirius_token');
@@ -14,6 +22,10 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    onUnauthorized?.();
+    throw new Error('Session expirée');
+  }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data as T;
 }
@@ -43,4 +55,22 @@ export async function downloadPdf(clientId: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+  shelter?: ShelterInfo | null;
+  breeder?: BreederInfo | null;
+}
+
+export async function loginRequest(email: string, password: string) {
+  return api<LoginResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function fetchMe() {
+  return api<{ user: AuthUser; shelter?: ShelterInfo | null; breeder?: BreederInfo | null }>('/auth/me');
 }

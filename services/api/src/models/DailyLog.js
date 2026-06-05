@@ -43,6 +43,20 @@ const dailyLogSchema = new mongoose.Schema(
     penalties: { type: [penaltyBonusSchema], default: [] },
     bonuses: { type: [penaltyBonusSchema], default: [] },
     closedAt: { type: Date, default: null },
+    budgetEvents: {
+      type: [{
+        label: String,
+        amount: Number,
+        appliedAt: { type: Date, default: Date.now },
+      }],
+      default: [],
+    },
+    weeklyChallenge: {
+      id: String,
+      title: String,
+      completed: { type: Boolean, default: false },
+      rewardBadgeId: String,
+    },
   },
   { timestamps: true },
 );

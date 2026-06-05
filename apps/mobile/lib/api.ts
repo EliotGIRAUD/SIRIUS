@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from './config';
+import { getApiUrl } from './config';
 
 const TOKEN_KEY = 'sirius_token';
 
@@ -23,7 +23,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${getApiUrl()}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data as T;

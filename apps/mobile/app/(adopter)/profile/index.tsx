@@ -12,7 +12,7 @@ export default function ProfileScreen() {
 
   async function onLogout() {
     await logout();
-    router.replace('/(auth)/login');
+    router.replace('/');
   }
 
   return (
@@ -23,6 +23,9 @@ export default function ProfileScreen() {
 
       <Link href="/(adopter)/profile/certifications" style={styles.link} accessibilityLabel="Mes certifications">Mes Certifications</Link>
       <Link href="/(adopter)/constellation" style={styles.link} accessibilityLabel="Mes constellations">Mes Constellations</Link>
+      <Link href="/(adopter)/journal" style={styles.link}>Journal de bord</Link>
+      <Link href="/(adopter)/badges" style={styles.link}>Mes Badges</Link>
+      <Link href="/(adopter)/breeds/catalog" style={styles.link}>Catalogue races</Link>
       <Link href="/(adopter)/profile/settings" style={styles.link} accessibilityLabel="Paramètres">Paramètres</Link>
       <Link href="/(adopter)/profile/subscription" style={styles.link} accessibilityLabel="Mon abonnement">Mon abonnement</Link>
       <Link href="/(adopter)/profile/dogs" style={styles.link} accessibilityLabel="Changer de chien">Changer de chien</Link>

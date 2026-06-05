@@ -7,6 +7,8 @@ import { CodeInput } from '../../components/ui/CodeInput';
 import { Button } from '../../components/ui/Button';
 import { colors } from '../../lib/theme';
 
+const SPA_CODE_LENGTH = 8;
+
 export default function SpaCodeScreen() {
   const router = useRouter();
   const setSpaCode = useAuthStore((s) => s.setSpaCode);
@@ -15,7 +17,9 @@ export default function SpaCodeScreen() {
   const [shelterName, setShelterName] = useState('');
 
   async function validate() {
-    if (code.length !== 6) return Alert.alert('Code SPA', 'Entrez 6 caractères');
+    if (code.length < 6 || code.length > SPA_CODE_LENGTH) {
+      return Alert.alert('Code SPA', `Entrez entre 6 et ${SPA_CODE_LENGTH} caractères`);
+    }
     setLoading(true);
     try {
       const data = await api<{ valid: boolean; shelter?: { name: string } }>('/auth/validate-code', {
@@ -35,8 +39,8 @@ export default function SpaCodeScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Code SPA</Text>
-      <Text style={styles.sub}>Entrez le code à 6 caractères fourni par votre refuge</Text>
-      <CodeInput value={code} onChange={setCode} />
+      <Text style={styles.sub}>Entrez le code fourni par votre refuge (ex. SPADEMO1)</Text>
+      <CodeInput length={SPA_CODE_LENGTH} value={code} onChange={setCode} />
       {shelterName ? <Text style={styles.ok}>Refuge : {shelterName}</Text> : null}
       <Button label="Valider le code" onPress={validate} loading={loading} />
     </View>

@@ -3,11 +3,19 @@ import crypto from 'crypto';
 import { signToken } from '../config/jwt.js';
 import { authenticate } from '../middleware/auth.js';
 import { AuthCode } from '../models/AuthCode.js';
+import { Breeder } from '../models/Breeder.js';
 import { Shelter } from '../models/Shelter.js';
 import { User } from '../models/User.js';
 import { generateAuthCode, generateProCode } from '../services/simulationService.js';
 
 const DEV_VERIFY_CODE = '123456';
+const SPA_CODE_MIN = 6;
+const SPA_CODE_MAX = 8;
+
+function isValidSpaCode(code) {
+  const len = String(code ?? '').trim().length;
+  return len >= SPA_CODE_MIN && len <= SPA_CODE_MAX;
+}
 
 function buildToken(user, shelterId = null) {
   return signToken({
@@ -26,17 +34,51 @@ function serializeUser(user) {
     displayName: user.displayName,
     pseudo: user.pseudo || user.displayName,
     shelterId: user.shelterId,
+    breederId: user.breederId,
     emailVerified: user.emailVerified,
     onboardingCompleted: user.onboardingCompleted,
     settings: user.settings,
+    plan: user.plan || 'free',
+    ownedBreeds: user.ownedBreeds || ['labrador'],
+    purchases: user.purchases || [],
+    badges: user.badges || [],
   };
+}
+
+function serializeBreeder(breeder) {
+  if (!breeder) return null;
+  return {
+    id: breeder._id,
+    name: breeder.name,
+    description: breeder.description,
+    breeds: breeder.breeds,
+    lat: breeder.lat,
+    lng: breeder.lng,
+    verified: breeder.verified,
+    subscriptionStatus: breeder.subscriptionStatus,
+    subscriptionValidUntil: breeder.subscriptionValidUntil,
+    monthlyViews: breeder.monthlyViews,
+  };
+}
+
+async function loadPartnerContext(user) {
+  let shelter = null;
+  let breeder = null;
+  if (user.role === 'shelter' && user.ownedShelterId) {
+    const doc = await Shelter.findById(user.ownedShelterId);
+    if (doc) shelter = { id: doc._id, name: doc.name, proCode: doc.proCode };
+  }
+  if (user.role === 'breeder' && user.breederId) {
+    breeder = serializeBreeder(await Breeder.findById(user.breederId));
+  }
+  return { shelter, breeder };
 }
 
 export async function validateCode(req, res) {
   try {
     const { code } = req.body;
-    if (!code || String(code).trim().length !== 6) {
-      return res.status(400).json({ error: 'Code SPA requis (6 caractères)' });
+    if (!isValidSpaCode(code)) {
+      return res.status(400).json({ error: `Code SPA requis (${SPA_CODE_MIN} à ${SPA_CODE_MAX} caractères)` });
     }
     const normalized = String(code).toUpperCase().trim();
     const shelter = await Shelter.findOne({ proCode: normalized });
@@ -132,10 +174,8 @@ export async function getMe(req, res) {
   try {
     const user = await User.findById(req.user.userId).select('-passwordHash');
     if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
-    let shelter = null;
-    const shelterId = user.role === 'shelter' ? user.ownedShelterId : user.shelterId;
-    if (shelterId) shelter = await Shelter.findById(shelterId);
-    return res.json({ user: serializeUser(user), shelter: shelter ? { id: shelter._id, name: shelter.name, proCode: shelter.proCode } : null });
+    const { shelter, breeder } = await loadPartnerContext(user);
+    return res.json({ user: serializeUser(user), shelter, breeder });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -161,6 +201,68 @@ export async function updateSettings(req, res) {
     user.settings = { ...user.settings?.toObject?.() ?? user.settings, ...req.body };
     await user.save();
     return res.json({ settings: user.settings });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function registerBreeder(req, res) {
+  try {
+    const { email, password, displayName, name, description, breeds } = req.body;
+    if (!email || !password || !displayName || !name) {
+      return res.status(400).json({ error: 'Champs requis: email, password, displayName, name' });
+    }
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) return res.status(409).json({ error: 'Email déjà utilisé' });
+    const breeder = await Breeder.create({
+      name,
+      description: description || '',
+      breeds: breeds || ['labrador'],
+    });
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      email: email.toLowerCase(),
+      passwordHash,
+      displayName,
+      pseudo: displayName,
+      role: 'breeder',
+      breederId: breeder._id,
+      emailVerified: true,
+      onboardingCompleted: true,
+    });
+    breeder.userId = user._id;
+    await breeder.save();
+    const token = buildToken(user);
+    return res.status(201).json({
+      token,
+      user: serializeUser(user),
+      breeder: serializeBreeder(breeder),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function registerSponsor(req, res) {
+  try {
+    const { email, password, displayName, companyName } = req.body;
+    if (!email || !password || !displayName || !companyName) {
+      return res.status(400).json({ error: 'Champs requis: email, password, displayName, companyName' });
+    }
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) return res.status(409).json({ error: 'Email déjà utilisé' });
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      email: email.toLowerCase(),
+      passwordHash,
+      displayName,
+      pseudo: displayName,
+      role: 'sponsor',
+      emailVerified: true,
+      onboardingCompleted: true,
+    });
+    const token = buildToken(user);
+    return res.status(201).json({ token, user: serializeUser(user), companyName });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -208,9 +310,8 @@ export async function login(req, res) {
     if (!ok) return res.status(401).json({ error: 'Identifiants invalides' });
     const shelterId = user.role === 'shelter' ? user.ownedShelterId : user.shelterId;
     const token = buildToken(user, shelterId);
-    let shelter = null;
-    if (shelterId) shelter = await Shelter.findById(shelterId);
-    return res.json({ token, user: serializeUser(user), shelter: shelter ? { id: shelter._id, name: shelter.name, proCode: shelter.proCode } : null });
+    const { shelter, breeder } = await loadPartnerContext(user);
+    return res.json({ token, user: serializeUser(user), shelter, breeder });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

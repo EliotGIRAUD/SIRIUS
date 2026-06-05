@@ -13,6 +13,10 @@ export default function AdopterLayout() {
       <Tabs.Screen name="dashboard" options={{ href: null }} />
       <Tabs.Screen name="actions" options={{ href: null }} />
       <Tabs.Screen name="report" options={{ href: null }} />
+      <Tabs.Screen name="journal" options={{ href: null }} />
+      <Tabs.Screen name="badges" options={{ href: null }} />
+      <Tabs.Screen name="action" options={{ href: null }} />
+      <Tabs.Screen name="breeds" options={{ href: null }} />
       <Tabs.Screen name="profile/settings" options={{ href: null }} />
       <Tabs.Screen name="profile/certifications" options={{ href: null }} />
       <Tabs.Screen name="profile/subscription" options={{ href: null }} />

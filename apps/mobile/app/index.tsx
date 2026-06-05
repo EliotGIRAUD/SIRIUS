@@ -22,8 +22,7 @@ export default function Index() {
     );
   }
 
-  if (!user) return <Redirect href="/(auth)/login" />;
-  if (user.role === 'shelter') return <Redirect href="/(pro)/clients" />;
+  if (!user || user.role !== 'adopter') return <Redirect href="/(auth)/login" />;
   if (!user.emailVerified) return <Redirect href="/(auth)/verify-email" />;
   if (!user.onboardingCompleted) return <Redirect href="/(onboarding)/slides" />;
   return <Redirect href="/(adopter)/home" />;

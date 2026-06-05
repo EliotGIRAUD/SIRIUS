@@ -11,6 +11,8 @@ interface Props {
 export function CodeInput({ length = 6, value, onChange }: Props) {
   const ref = useRef<TextInput>(null);
   const chars = value.padEnd(length, ' ').slice(0, length).split('');
+  const boxSize = length > 6 ? 36 : 44;
+  const fontSize = length > 6 ? 16 : 20;
 
   return (
     <View style={styles.row}>
@@ -24,8 +26,12 @@ export function CodeInput({ length = 6, value, onChange }: Props) {
         maxLength={length}
       />
       {chars.map((c, i) => (
-        <View key={i} style={styles.box} onTouchEnd={() => ref.current?.focus()}>
-          <TextInput editable={false} style={styles.char} value={c.trim()} />
+        <View
+          key={i}
+          style={[styles.box, { width: boxSize, height: boxSize + 8 }]}
+          onTouchEnd={() => ref.current?.focus()}
+        >
+          <TextInput editable={false} style={[styles.char, { fontSize, width: boxSize - 4 }]} value={c.trim()} />
         </View>
       ))}
     </View>

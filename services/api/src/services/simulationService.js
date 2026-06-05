@@ -2,14 +2,19 @@ import crypto from 'crypto';
 import {
   GAUGE_MAX,
   GAUGE_MIN,
-  INITIAL_BUDGET,
   INITIAL_GAUGES,
   MEAL_COOLDOWN_HOURS,
+  MEAL_GRAMS_MAX,
+  MEAL_GRAMS_MIN,
   SHOP_CATALOG,
   SIMULATION_DAYS,
   WALK_COOLDOWN_MINUTES,
+  computeBreedBudget,
   getShopItem,
 } from '@sirius/shared';
+import { assertBreedAccess } from './breedAccess.js';
+import { unlockBadge } from './badgeService.js';
+import { evaluateChallenge, getChallengeForWeek } from './weeklyChallengeService.js';
 import { DailyLog } from '../models/DailyLog.js';
 import { Dog } from '../models/Dog.js';
 import { Shelter } from '../models/Shelter.js';
@@ -42,13 +47,21 @@ function applyGaugeEffects(simulation, action) {
   const gauges = { ...simulation.gauges.toObject?.() ?? simulation.gauges };
 
   switch (action.type) {
-    case 'meal':
-      gauges.hunger = clampGauge(gauges.hunger + 25);
+    case 'meal': {
+      const q = action.metadata?.pourQuality || 'ok';
+      const boost = q === 'low' ? 10 : q === 'high' ? 15 : 25;
+      gauges.hunger = clampGauge(gauges.hunger + boost);
+      if (q === 'high') gauges.hygiene = clampGauge(gauges.hygiene - 5);
       break;
-    case 'water':
-      gauges.hunger = clampGauge(gauges.hunger + 5);
-      gauges.hygiene = clampGauge(gauges.hygiene + 5);
+    }
+    case 'water': {
+      const q = action.metadata?.pourQuality || 'ok';
+      const h = q === 'low' ? 2 : q === 'high' ? 8 : 5;
+      const hy = q === 'low' ? 2 : q === 'high' ? -3 : 5;
+      gauges.hunger = clampGauge(gauges.hunger + h);
+      gauges.hygiene = clampGauge(gauges.hygiene + hy);
       break;
+    }
     case 'play':
     case 'affection':
       gauges.mental = clampGauge(gauges.mental + 15);
@@ -95,19 +108,27 @@ async function getOrCreateDayLog(simulationId, dayNumber) {
   return log;
 }
 
+const BUDGET_EVENTS = [
+  { label: 'Frais véto imprévu', amount: -30 },
+  { label: 'Réduction refuge partenaire', amount: 25 },
+  { label: 'Cours de dressage offert', amount: -15 },
+];
+
 export async function startSimulation(userId) {
   const existing = await getActiveSimulation(userId);
   if (existing) throw new Error('Une simulation est déjà en cours');
   const dog = await Dog.findOne({ userId, active: true });
   if (!dog) throw new Error('Configurez votre chien avant de démarrer');
 
+  const budget = computeBreedBudget(dog.breedId, Date.now());
+
   const simulation = await Simulation.create({
     userId,
     dogId: dog._id,
     status: 'in_progress',
     currentDay: 1,
-    budgetRemaining: INITIAL_BUDGET,
-    initialBudget: INITIAL_BUDGET,
+    budgetRemaining: budget,
+    initialBudget: budget,
     gauges: INITIAL_GAUGES,
     finalScore: 100,
   });
@@ -164,10 +185,15 @@ export async function endWalk(userId, sessionId) {
 export async function getMapPois(userId) {
   const user = await User.findById(userId);
   const shelter = user?.shelterId ? await Shelter.findById(user.shelterId) : null;
+  const { Breeder } = await import('../models/Breeder.js');
+  const { SponsorCampaign } = await import('../models/SponsorCampaign.js');
+  const breeders = await Breeder.find({ subscriptionStatus: 'active' }).limit(5);
+  const sponsors = await SponsorCampaign.find({ status: 'active' }).limit(3);
   return {
     shelter: shelter ? { name: shelter.name, lat: 48.8566, lng: 2.3522 } : null,
-    breeders: [{ name: 'Élevage du Lys', lat: 48.87, lng: 2.33 }],
+    breeders: breeders.map((b) => ({ id: b._id, name: b.name, lat: b.lat, lng: b.lng, verified: b.verified })),
     vets: [{ name: 'Clinique Vétérinaire Centrale', lat: 48.85, lng: 2.36 }],
+    sponsors: sponsors.map((s) => ({ id: s._id, name: s.name, tier: s.tier })),
   };
 }
 
@@ -184,6 +210,9 @@ async function enrichStatus(simulation, dayLog) {
 export async function setupDog(userId, payload) {
   const { breedId, name, sccLetter, moralContractSigned, abandonmentProtocolCompleted } = payload;
   if (!breedId || !name) throw new Error('Race et nom requis');
+  const user = await User.findById(userId);
+  if (!user) throw new Error('Utilisateur introuvable');
+  assertBreedAccess(user, breedId);
   if (!moralContractSigned || !abandonmentProtocolCompleted) {
     throw new Error('Contrat moral et protocole abandon requis');
   }
@@ -252,6 +281,13 @@ export async function recordAction(userId, payload) {
       throw new Error('Cooldown repas actif');
     }
     metadata.grams = metadata.grams ?? 350;
+    if (metadata.grams < MEAL_GRAMS_MIN) metadata.pourQuality = 'low';
+    else if (metadata.grams > MEAL_GRAMS_MAX) metadata.pourQuality = 'high';
+    else metadata.pourQuality = metadata.pourQuality || 'ok';
+  }
+
+  if (type === 'water') {
+    metadata.pourQuality = metadata.pourQuality || 'ok';
   }
 
   if (type === 'walk') {
@@ -323,11 +359,30 @@ export async function closeDay(simulationId) {
   const allLogs = await DailyLog.find({ simulationId: simulation._id }).sort({ dayNumber: 1 });
   const { dayScore, penalties, bonuses } = evaluateDayLog(dayLog, simulation, allLogs);
 
+  const weekNum = Math.ceil(simulation.currentDay / 7);
+  const challenge = getChallengeForWeek(weekNum);
+  if (!dayLog.weeklyChallenge?.id) {
+    dayLog.weeklyChallenge = { id: challenge.id, title: challenge.title, completed: false, rewardBadgeId: 'challenge_hero' };
+  }
+  if (evaluateChallenge({ ...dayLog.toObject(), penalties, bonuses }, challenge)) {
+    dayLog.weeklyChallenge.completed = true;
+    await unlockBadge(simulation.userId, 'challenge_hero').catch(() => {});
+  }
+
+  if (simulation.currentDay % 5 === 0 && BUDGET_EVENTS.length) {
+    const evt = BUDGET_EVENTS[simulation.currentDay % BUDGET_EVENTS.length];
+    dayLog.budgetEvents = dayLog.budgetEvents || [];
+    dayLog.budgetEvents.push({ label: evt.label, amount: evt.amount, appliedAt: new Date() });
+    simulation.budgetRemaining = Math.max(0, simulation.budgetRemaining + evt.amount);
+  }
+
   dayLog.dayScore = dayScore;
   dayLog.penalties = penalties;
   dayLog.bonuses = bonuses;
   dayLog.closedAt = new Date();
   await dayLog.save();
+
+  if (simulation.currentDay >= 7) await unlockBadge(simulation.userId, 'week1').catch(() => {});
 
   const closedLogs = await DailyLog.find({
     simulationId: simulation._id,
@@ -386,4 +441,49 @@ export function generateProCode() {
 
 export function generateAuthCode() {
   return crypto.randomBytes(3).toString('hex').toUpperCase();
+}
+
+export async function abandonSimulation(userId) {
+  const simulation = await getActiveSimulation(userId);
+  if (!simulation) throw new Error('Aucune simulation active');
+  simulation.status = 'abandoned';
+  simulation.completedAt = new Date();
+  simulation.finalScore = Math.max(0, simulation.finalScore - 25);
+  await simulation.save();
+  await Dog.updateMany({ userId, active: true }, { active: false });
+  return simulation;
+}
+
+export async function changeBreed(userId, payload) {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('Utilisateur introuvable');
+  const { breedId, name, sccLetter } = payload;
+  assertBreedAccess(user, breedId);
+  await abandonSimulation(userId);
+  return setupDog(userId, {
+    breedId,
+    name,
+    sccLetter,
+    moralContractSigned: true,
+    abandonmentProtocolCompleted: true,
+  });
+}
+
+export async function getJournal(userId) {
+  const simulation = await Simulation.findOne({ userId }).sort({ createdAt: -1 });
+  if (!simulation) return null;
+  const logs = await DailyLog.find({ simulationId: simulation._id }).sort({ dayNumber: 1 });
+  return {
+    simulation: { id: simulation._id, currentDay: simulation.currentDay, status: simulation.status, finalScore: simulation.finalScore },
+    entries: logs.map((log) => ({
+      day: log.dayNumber,
+      score: log.dayScore,
+      actions: log.actions,
+      penalties: log.penalties,
+      bonuses: log.bonuses,
+      budgetEvents: log.budgetEvents,
+      weeklyChallenge: log.weeklyChallenge,
+      closed: Boolean(log.closedAt),
+    })),
+  };
 }

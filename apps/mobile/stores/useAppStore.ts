@@ -4,11 +4,15 @@ import type { Gauges } from '@sirius/shared';
 export interface UserInfo {
   id: string;
   email: string;
-  role: 'adopter' | 'shelter';
+  role: 'adopter';
   displayName: string;
   pseudo?: string;
   emailVerified?: boolean;
   onboardingCompleted?: boolean;
+  plan?: 'free' | 'premium';
+  ownedBreeds?: string[];
+  purchases?: Array<{ productId: string; mock: boolean }>;
+  hasPdfAccess?: boolean;
   settings?: {
     soundsEnabled?: boolean;
     hapticsEnabled?: boolean;

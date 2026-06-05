@@ -14,20 +14,26 @@ export default function HomeScreen() {
   const router = useRouter();
   const sim = useSimulationStore();
   const setStatus = useSimulationStore((s) => s.setStatus);
-  const haptics = useAuthStore((s) => s.user?.settings?.hapticsEnabled ?? true);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const haptics = user?.settings?.hapticsEnabled ?? true;
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
+  const [initialBudget, setInitialBudget] = useState(450);
 
   const load = useCallback(async () => {
     try {
       const data = await api<{
-        simulation: { currentDay: number; budgetRemaining: number; gauges: typeof sim.gauges; status: string; finalScore: number };
+        simulation: { currentDay: number; budgetRemaining: number; initialBudget: number; gauges: typeof sim.gauges; status: string; finalScore: number };
         streak?: number;
         healthState?: string;
         dog?: { name: string };
         alerts: Array<{ type: string; message: string }>;
         cooldowns: Record<string, number>;
+        hasPdfAccess?: boolean;
       }>('/simulation/status');
+      setInitialBudget(data.simulation.initialBudget);
       setStatus({
         currentDay: data.simulation.currentDay,
         budgetRemaining: data.simulation.budgetRemaining,
@@ -40,10 +46,13 @@ export default function HomeScreen() {
         alerts: data.alerts,
         cooldowns: data.cooldowns,
       });
+      if (token && user) {
+        setAuth(token, { ...user, hasPdfAccess: data.hasPdfAccess });
+      }
     } catch {
       // pas de simulation
     }
-  }, [setStatus]);
+  }, [setStatus, token, user, setAuth]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -73,9 +82,11 @@ export default function HomeScreen() {
     >
       <View style={styles.header}>
         <Text style={styles.day}>J.{sim.currentDay}/30</Text>
-        <Text style={styles.streak}>🔥 Streak {sim.streak}</Text>
+        <Pressable onPress={() => router.push('/(adopter)/constellation')}>
+          <Text style={styles.streak}>⭐ {sim.streak} étoiles · streak</Text>
+        </Pressable>
       </View>
-      <Text style={styles.budget}>{sim.budgetRemaining} € · Score {sim.finalScore}</Text>
+      <Text style={styles.budget}>{sim.budgetRemaining}€ / {initialBudget}€ · Score {sim.finalScore}</Text>
 
       <DogAvatar state={sim.healthState as 'happy' | 'hungry' | 'tired' | 'sick' | 'sad'} name={sim.dogName || 'Mon chien'} />
 
@@ -86,8 +97,8 @@ export default function HomeScreen() {
         <GaugeBar label="Mental" value={sim.gauges.mental} color="#8b5cf6" />
       </View>
 
-      <ActionButton label="Nourrir" onPress={() => act('meal', { grams: 350 })} loading={loading === 'meal'} disabled={Boolean(sim.cooldowns.meal)} cooldownLabel={sim.cooldowns.meal ? `${sim.cooldowns.meal} min` : undefined} />
-      <ActionButton label="Abreuver" onPress={() => act('water')} loading={loading === 'water'} />
+      <ActionButton label="Nourrir (gamelle)" onPress={() => router.push('/(adopter)/action/meal')} loading={loading === 'meal'} disabled={Boolean(sim.cooldowns.meal)} cooldownLabel={sim.cooldowns.meal ? `${sim.cooldowns.meal} min` : undefined} />
+      <ActionButton label="Abreuver (gamelle)" onPress={() => router.push('/(adopter)/action/water')} loading={loading === 'water'} />
       <ActionButton label="Soigner" onPress={() => act('vet_care', { cost: 55 })} loading={loading === 'vet_care'} />
       <ActionButton label="Affection" onPress={() => act('affection')} loading={loading === 'affection'} />
       <ActionButton label="Brosser" onPress={() => act('brush')} loading={loading === 'brush'} />

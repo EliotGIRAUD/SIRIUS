@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { restoreSession } from '../lib/session';
 import { flushQueue } from '../lib/offline';
+import { scheduleContextualReminders } from '../lib/notifications';
+import { getToken } from '../lib/api';
 import { useAuthStore } from '../stores/useAppStore';
 
 export default function RootLayout() {
@@ -13,8 +15,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     (async () => {
-      await restoreSession();
+      const user = await restoreSession();
       await flushQueue().catch(() => {});
+      const token = await getToken();
+      if (token && user?.settings?.notificationsEnabled) {
+        await scheduleContextualReminders(token, user.settings?.soundsEnabled ?? true);
+      }
       setBootstrapped(true);
       setReady(true);
     })();

@@ -6,7 +6,9 @@ import { DailyLog } from '../models/DailyLog.js';
 import { Simulation } from '../models/Simulation.js';
 import { User } from '../models/User.js';
 import { Shelter } from '../models/Shelter.js';
+import { WalkSession } from '../models/WalkSession.js';
 import { generateAttestationPdf } from '../services/attestationPdf.js';
+import { mockSubscribeB2B } from '../services/billingService.js';
 import { generateCode } from './auth.routes.js';
 
 const router = Router();
@@ -24,6 +26,44 @@ async function assertClientBelongsToShelter(clientId, shelterId) {
 }
 
 router.post('/codes', generateCode);
+
+router.get('/subscription', async (req, res) => {
+  try {
+    const shelter = await Shelter.findById(req.user.shelterId);
+    if (!shelter) return res.status(404).json({ error: 'Refuge introuvable' });
+    return res.json({
+      subscriptionStatus: shelter.subscriptionStatus,
+      subscriptionPlan: shelter.subscriptionPlan,
+      subscriptionValidUntil: shelter.subscriptionValidUntil,
+      features: shelter.features,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/subscription/activate-mock', async (req, res) => {
+  try {
+    const sub = await mockSubscribeB2B('shelter', req.user.shelterId, 'spa_launch');
+    const shelter = await Shelter.findById(req.user.shelterId);
+    return res.json({ subscription: sub, shelter });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/dashboard-stats', async (req, res) => {
+  try {
+    const shelterId = req.user.shelterId;
+    const clients = await User.find({ role: 'adopter', shelterId });
+    const sims = await Simulation.find({ userId: { $in: clients.map((c) => c._id) } });
+    const avgScore = sims.length ? Math.round(sims.reduce((s, x) => s + x.finalScore, 0) / sims.length) : 0;
+    const walkCount = await WalkSession.countDocuments({ userId: { $in: clients.map((c) => c._id) } });
+    return res.json({ clientCount: clients.length, avgScore, walkCount });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/clients', async (req, res) => {
   try {
@@ -66,6 +106,18 @@ router.get('/client/:id/metrics', async (req, res) => {
 
     const logs = await DailyLog.find({ simulationId: simulation._id }).sort({ dayNumber: 1 });
     const attestation = await Attestation.findOne({ simulationId: simulation._id });
+    const walks = await WalkSession.find({ simulationId: simulation._id }).sort({ startedAt: -1 });
+
+    const forgetCounts = {};
+    for (const log of logs) {
+      for (const p of log.penalties || []) {
+        forgetCounts[p.code] = (forgetCounts[p.code] || 0) + 1;
+      }
+    }
+
+    const attestationValidUntil = attestation?.validatedAt
+      ? new Date(new Date(attestation.validatedAt).getTime() + 180 * 24 * 60 * 60 * 1000)
+      : null;
 
     return res.json({
       client: {
@@ -85,6 +137,23 @@ router.get('/client/:id/metrics', async (req, res) => {
           penaltiesCount: log?.penalties?.length ?? 0,
         };
       }),
+      walks: walks.map((w) => ({
+        id: w._id,
+        startedAt: w.startedAt,
+        durationMinutes: w.durationMinutes,
+        distanceMeters: w.distanceMeters,
+        validated: w.validated,
+        cheatFlags: w.cheatFlags,
+      })),
+      forgetCounts,
+      budget: {
+        remaining: simulation.budgetRemaining,
+        initial: simulation.initialBudget,
+        vitalSpent: simulation.vitalSpent,
+        superfluousSpent: simulation.superfluousSpent,
+        totalSpent: simulation.totalSpent,
+      },
+      attestationValidUntil,
     });
   } catch (err) {
     return res.status(err.message.includes('introuvable') ? 404 : 500).json({ error: err.message });
