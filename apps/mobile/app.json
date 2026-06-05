@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "SIRIUS",
+    "slug": "sirius",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "sirius",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#2563eb"
+      },
+      "usesCleartextTraffic": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}

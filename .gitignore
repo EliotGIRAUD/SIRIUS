@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.expo/
+.turbo/
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+*.pdf
+services/api/storage/

@@ -1,0 +1,27 @@
+{
+  "name": "@sirius/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "build": "echo ok",
+    "lint": "echo ok",
+    "test": "node --test test/**/*.test.js",
+    "typecheck": "echo ok",
+    "seed": "node src/scripts/seed.js"
+  },
+  "dependencies": {
+    "@sirius/shared": "*",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.15.1",
+    "node-cron": "^4.1.0",
+    "pdfkit": "^0.17.1",
+    "qrcode": "^1.5.4"
+  }
+}
